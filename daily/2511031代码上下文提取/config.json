@@ -1,0 +1,15 @@
+{
+    "output_filename": "my_ai_context.txt",
+    "ignore_dirs": [
+        "temp_data",
+        "uploads"
+    ],
+    "ignore_files": [
+        "settings.local.py"
+    ],
+    "max_file_size_kb": 500,
+    "preamble_text": "这是一个Django项目，请帮我检查models.py文件中的安全漏洞。\n\n",
+    "ignore_patterns": [
+        "#  Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved."
+    ]
+}

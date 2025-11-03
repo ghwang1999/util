@@ -1,0 +1,56 @@
+# --- AI 上下文生成器配置 ---
+
+# [核心配置] 要扫描的项目文件夹路径
+# '.' 表示 config.yaml 文件所在的当前文件夹
+# 你也可以使用相对路径，例如: '../my_other_project' 或 './src'
+project_path: /bitparrot/tech_research/ghwang/project/2508251阿语数据集/daily/2509031
+
+# 输出文件的名称
+output_filename: my_ai_snapshot.txt
+
+# [新增] 是否扫描子文件夹 (true: 扫描, false: 只扫描当前文件夹)
+# 设置为 false 后，脚本将只提取项目根目录下的文件。
+process_subfolders: false
+
+# 需要完全忽略的文件夹列表
+# 通常是依赖、构建产物或虚拟环境
+ignore_dirs:
+  - .git
+  - node_modules
+  - __pycache__
+  - dist
+  - build
+  - venv
+  - .vscode
+  - temp_data # 这是一个自定义的忽略目录
+
+# 需要忽略的特定文件列表
+ignore_files:
+  # - .gitignore
+  # - package-lock.json
+  # - settings.local.py # 像这样注释掉就可以临时禁用这一行
+
+# 需要忽略的二进制文件扩展名，防止脚本读取它们时出错
+binary_extensions:
+  - .png
+  - .jpg
+  - .svg
+  - .ico
+  - .pdf
+  - .zip
+  - .exe
+
+# 单个文件的最大大小限制 (单位 KB)，超过此大小的文件将被跳过
+max_file_size_kb: 200
+
+# 添加到输出文件开头的前言文本，可以给 AI 提供指令
+# 使用 | 可以保留换行符，非常适合多行文本
+preamble_text: |
+  这是一个 Python Django 项目。
+  请帮我分析代码结构，并找出潜在的性能问题。
+
+# 在文件内容中需要屏蔽的词语或句子（整行屏蔽）
+# 非常适合用来过滤掉自动生成的注释、版权信息或调试代码
+ignore_patterns:
+  # - "Copyright (c) Huawei Technologies Co., Ltd."
+  # - "Copyright (c)" # 屏蔽包含版权信息的行
