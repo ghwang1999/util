@@ -3,7 +3,7 @@
 # [核心配置] 要扫描的项目文件夹路径
 # '.' 表示 config.yaml 文件所在的当前文件夹
 # 你也可以使用相对路径，例如: '../my_other_project' 或 './src'
-project_path: /bitparrot/tech_research/ghwang/project/2508251阿语数据集/daily/2509031
+project_path: D:\PFile\项目\25071软件能力可信\250709科目一上机编程\代码库\2511201graphrag\新建文件夹\graphrag
 
 # 输出文件的名称
 output_filename: my_ai_snapshot.txt
