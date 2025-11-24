@@ -36,6 +36,8 @@ ignore:
   - "*.png"
   - package-lock.json
   - yarn.lock
+  - .context_rules.yaml
+  - context_snapshot.txt
 
 # [统一白名单]
 # 全局配置通常留空，表示“默认读取所有内容”
