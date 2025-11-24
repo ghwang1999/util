@@ -164,17 +164,22 @@ def generate_context(root_path, config):
     ignore_dirs_set = set(config.get('ignore_dirs', []))
     ignore_files_set = set(config.get('ignore_files', []))
     binary_extensions = config.get('binary_extensions', [])
+    process_subfolders = config.get('process_subfolders', True) # 获取配置
     
     print(f"正在扫描项目: {root_path}")
-    print(f"扫描模式: {'递归扫描子文件夹' if config.get('process_subfolders', True) else '只扫描根目录'}")
+    print(f"扫描模式: {'递归扫描子文件夹' if process_subfolders else '只扫描根目录'}")
     
     for foldername, subfolders, filenames in os.walk(root_path, topdown=True):
         
+        # --- 核心修复开始 ---
+        # 1. 首先，如果在任何层级遇到忽略目录，都应该剔除，防止 os.walk 进入
+        subfolders[:] = [d for d in subfolders if d not in ignore_dirs_set]
+        
+        # 2. 处理是否递归的逻辑
         if foldername == root_path:
-            if not config.get('process_subfolders', True):
-                subfolders[:] = []
-            else:
-                subfolders[:] = [d for d in subfolders if d not in ignore_dirs_set]
+            if not process_subfolders:
+                subfolders[:] = [] # 如果配置不递归，清空子目录列表，os.walk 将停止深入
+        # --- 核心修复结束 ---
         
         for filename in filenames:
             if filename in ignore_files_set:
