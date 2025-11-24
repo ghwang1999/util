@@ -1,139 +1,196 @@
 import os
 import argparse
 import sys
+import fnmatch
+
 try:
-    import yaml # 导入 PyYAML 库
+    import yaml
 except ImportError:
     print("❌ 错误: PyYAML 库未安装。请运行 'pip install PyYAML' 来安装它。")
     sys.exit(1)
 
-# 默认配置
+# --- 默认全局配置 ---
 DEFAULT_CONFIG = {
     "project_path": ".",
     "output_filename": "ai_context_snapshot.txt",
-    "ignore_dirs": [".git", "node_modules", "__pycache__", "dist", "build", ".vscode", "venv"],
-    "ignore_files": ["context_generator.py", "config.yaml", "config.yml"],
-    # --- 修复点: 合并了 binary_extensions 并添加了 .pyc ---
-    "binary_extensions": [".png", ".jpg", ".svg", ".pdf", ".zip", ".exe", ".pyc"],
     "max_file_size_kb": 200,
+    "process_subfolders": True,
+    # 统一的黑名单：支持文件夹名、文件名、通配符
+    "ignore": [
+        ".git", "node_modules", "__pycache__", "dist", "build", ".vscode", "venv", ".idea",
+        "*.pyc", "*.png", "*.jpg", "*.svg", "*.exe", "*.zip", "*.pdf", "package-lock.json"
+    ],
+    # 统一的白名单：如果设置了内容，则只扫描匹配的路径；为空则扫描所有
+    "include": [], 
     "preamble_text": "# Project Context Snapshot\n\n",
-    "ignore_patterns": [],
-    "process_subfolders": True
+    "ignore_patterns": [] # 内容过滤
 }
 
-def load_config(base_path):
-    """尝试从指定目录加载 YAML 配置，并合并默认配置。"""
-    config = DEFAULT_CONFIG.copy()
-    config_path_yaml = os.path.join(base_path, 'config.yaml')
-    config_path_yml = os.path.join(base_path, 'config.yml')
+PROJECT_CONFIG_NAME = ".context_rules.yaml"  # 项目文件夹内的配置文件名
+
+def merge_config(base_config, new_config):
+    """合并配置：列表追加，其他类型覆盖"""
+    if not new_config:
+        return base_config
     
-    config_path = None
-    if os.path.exists(config_path_yaml):
-        config_path = config_path_yaml
-    elif os.path.exists(config_path_yml):
-        config_path = config_path_yml
+    merged = base_config.copy()
+    for key, value in new_config.items():
+        # 处理 YAML 中列表全被注释导致 value 为 None 的情况
+        if value is None:
+            if isinstance(base_config.get(key), list):
+                value = []
+            else:
+                continue # 如果不是列表且为None，通常忽略或保持默认
+        
+        # 列表类型 -> 追加 (去重)
+        if isinstance(value, list) and isinstance(merged.get(key), list):
+            # 简单的去重合并，保持顺序
+            current_list = merged[key]
+            for item in value:
+                if item not in current_list:
+                    current_list.append(item)
+        # 其他类型 -> 覆盖
+        else:
+            merged[key] = value
+    return merged
 
-    if config_path:
+def load_config(script_dir, project_root=None):
+    """加载全局配置，并尝试加载项目级配置"""
+    # 1. 加载默认配置
+    config = DEFAULT_CONFIG.copy()
+    
+    # 2. 加载全局 config.yaml
+    global_config_path = os.path.join(script_dir, 'config.yaml')
+    if os.path.exists(global_config_path):
         try:
-            with open(config_path, 'r', encoding='utf-8') as f:
-                user_config = yaml.safe_load(f)
-                if user_config:
-                    config.update(user_config)
-            print(f"✅ 成功加载配置文件: {config_path}")
-        except yaml.YAMLError as e:
-            print(f"❌ 错误: 配置文件 '{config_path}' 格式不正确: {e}")
+            with open(global_config_path, 'r', encoding='utf-8') as f:
+                global_yml = yaml.safe_load(f)
+                config = merge_config(config, global_yml)
+            print(f"✅ 已加载全局配置: {global_config_path}")
         except Exception as e:
-            print(f"❌ 错误: 读取配置文件时发生意外错误: {e}")
-    else:
-        print("ℹ️ 未找到 config.yaml 或 config.yml，将使用默认配置。")
+            print(f"⚠️ 加载全局配置出错: {e}")
 
-    list_keys = ["ignore_dirs", "ignore_files", "binary_extensions", "ignore_patterns"]
-    for key in list_keys:
-        if not isinstance(config.get(key), list):
-            config[key] = [] 
-
-    output_file = config.get("output_filename")
-    if output_file and output_file not in config["ignore_files"]:
-        config["ignore_files"].append(output_file)
-
+    # 3. 加载项目级配置 (如果存在)
+    if project_root:
+        project_config_path = os.path.join(project_root, PROJECT_CONFIG_NAME)
+        if os.path.exists(project_config_path):
+            try:
+                with open(project_config_path, 'r', encoding='utf-8') as f:
+                    proj_yml = yaml.safe_load(f)
+                    config = merge_config(config, proj_yml)
+                print(f"✅ 已加载项目级配置: {project_config_path}")
+            except Exception as e:
+                print(f"⚠️ 加载项目配置出错: {e}")
+    
+    # 确保关键字段是列表
+    for key in ["ignore", "include", "ignore_patterns"]:
+        if config.get(key) is None: config[key] = []
+        
     return config
 
-def get_syntax_lang(filepath):
-    """根据文件扩展名返回代码块语言提示"""
-    extension_map = {
-        '.py': 'python', '.js': 'javascript', '.ts': 'typescript',
-        '.jsx': 'jsx', '.tsx': 'tsx', '.html': 'html',
-        '.css': 'css', '.scss': 'scss', '.json': 'json',
-        '.md': 'markdown', '.java': 'java', '.go': 'go',
-        '.sh': 'bash', '.yaml': 'yaml', '.yml': 'yaml',
-    }
-    ext = os.path.splitext(filepath)[1].lower()
-    return extension_map.get(ext, '')
+def should_ignore(name, relative_path, config):
+    """检查文件/文件夹是否应该被忽略 (黑名单)"""
+    ignore_rules = config.get('ignore', [])
+    
+    # 1. 检查名称匹配 (如 'node_modules', '*.pyc')
+    for pattern in ignore_rules:
+        if fnmatch.fnmatch(name, pattern):
+            return True
+            
+    # 2. 检查路径匹配 (如 'src/temp/*')
+    # 将路径分隔符统一为 /
+    normalized_path = relative_path.replace(os.sep, '/')
+    for pattern in ignore_rules:
+        if fnmatch.fnmatch(normalized_path, pattern):
+            return True
+            
+    return False
+
+def should_include(name, relative_path, config):
+    """检查文件/文件夹是否在白名单中 (修正版)"""
+    include_rules = config.get('include', [])
+    
+    # 如果白名单为空，默认全选 (返回 True)
+    if not include_rules:
+        return True
+        
+    normalized_path = relative_path.replace(os.sep, '/')
+    
+    for pattern in include_rules:
+        # 去除 pattern 末尾的斜杠，防止 "graphrag/" 匹配不到 "graphrag"
+        clean_pattern = pattern.rstrip('/')
+        
+        # 1. 文件名或路径精确匹配 / 通配符匹配
+        # 情况：include: ["*.py"], 当前是 test.py -> 命中
+        if fnmatch.fnmatch(name, pattern) or fnmatch.fnmatch(normalized_path, pattern):
+            return True
+        
+        # 2. [递归向下] 还没走到目标文件夹，但当前是必经之路
+        # 情况：include: ["src/utils"], 当前是 src -> 必须命中，否则进不去
+        # 判断：pattern 是否以 "src/" 开头
+        if clean_pattern.startswith(normalized_path + '/'):
+            return True
+
+        # 3. [递归向上] 已经进入了目标文件夹，其子内容都要包含 (这是之前缺失的逻辑！)
+        # 情况：include: ["graphrag"], 当前是 graphrag/index -> 必须命中
+        # 判断：当前路径 是否以 "graphrag/" 开头
+        if normalized_path.startswith(clean_pattern + '/'):
+            return True
+            
+    return False
 
 def filter_content(content, patterns):
-    """根据提供的模式列表过滤文件内容。"""
-    if not patterns:
-        return content
+    if not patterns: return content
     lines = content.splitlines()
-    filtered_lines = [line for line in lines if not any(pattern in line for pattern in patterns)]
+    filtered_lines = [line for line in lines if not any(p in line for p in patterns)]
     return "\n".join(filtered_lines)
 
 def generate_file_tree(root_path, config):
-    """遍历文件夹并生成文件树结构，遵循所有忽略规则。"""
     tree_lines = []
-    
-    # 从配置中安全地获取设置
-    ignore_dirs_set = set(config.get('ignore_dirs', []))
-    ignore_files_set = set(config.get('ignore_files', []))
-    binary_extensions = config.get('binary_extensions', [])
-    max_file_size_kb = config.get('max_file_size_kb', 200)
-
     tree_lines.append(f"📁 {os.path.basename(root_path)}/")
-
-    # 使用一个列表来存储所有需要遍历的目录，从根目录开始
-    # (path, depth)
-    dir_queue = [(root_path, 0)]
     
-    # 存储已经处理过的目录，防止循环引用（虽然os.walk不会，但这是一个好习惯）
-    processed_dirs = set()
-
-    # 使用字典来构建树结构，这样可以更好地处理排序和缩进
+    ignore_rules = config.get('ignore', [])
+    
     tree = {}
-
+    
     for foldername, subfolders, filenames in os.walk(root_path, topdown=True):
-        # --- 过滤目录 ---
-        subfolders[:] = sorted([d for d in subfolders if d not in ignore_dirs_set])
-        if not config.get('process_subfolders', True) and foldername != root_path:
-            subfolders[:] = [] # 如果不处理子文件夹，则清空
+        rel_dir = os.path.relpath(foldername, root_path)
+        if rel_dir == '.': rel_dir = ''
         
+        # --- 过滤目录 (原地修改 subfolders) ---
+        # 1. 黑名单过滤
+        subfolders[:] = [d for d in subfolders if not should_ignore(d, os.path.join(rel_dir, d), config)]
+        # 2. 白名单过滤
+        if config.get('include'):
+             subfolders[:] = [d for d in subfolders if should_include(d, os.path.join(rel_dir, d), config)]
+        
+        # 如果不处理子文件夹，且当前是根目录，清空子目录
+        if not config.get('process_subfolders', True) and foldername == root_path:
+            subfolders[:] = []
+
         # --- 过滤文件 ---
         filtered_files = []
         for filename in sorted(filenames):
-            if filename in ignore_files_set:
-                continue
-            if any(filename.lower().endswith(ext) for ext in binary_extensions):
-                continue
+            file_rel_path = os.path.join(rel_dir, filename)
             
-            full_filepath = os.path.join(foldername, filename)
-            try:
-                if os.path.getsize(full_filepath) / 1024 > max_file_size_kb:
-                    continue
-                filtered_files.append(filename)
-            except OSError:
-                continue
-        
-        # --- 构建树形结构 ---
-        relative_path = os.path.relpath(foldername, root_path)
-        path_parts = relative_path.split(os.sep) if relative_path != '.' else []
-        
+            # 黑名单
+            if should_ignore(filename, file_rel_path, config): continue
+            # 白名单
+            if not should_include(filename, file_rel_path, config): continue
+            
+            # 大小检查 (树结构可以不检查大小，也可以检查，这里为了简洁只在读取时严格检查)
+            filtered_files.append(filename)
+
+        # --- 构建树 ---
+        path_parts = rel_dir.split(os.sep) if rel_dir else []
         current_level = tree
         for part in path_parts:
             current_level = current_level.setdefault(f"📁 {part}", {})
-
+            
         for d in subfolders:
             current_level.setdefault(f"📁 {d}", {})
         for f in filtered_files:
-            current_level[f"📄 {f}"] = None # None 表示文件
+            current_level[f"📄 {f}"] = None
 
     def build_tree_lines(subtree, prefix=""):
         items = sorted(subtree.keys())
@@ -141,117 +198,87 @@ def generate_file_tree(root_path, config):
             is_last = (i == len(items) - 1)
             connector = "└── " if is_last else "├── "
             tree_lines.append(f"{prefix}{connector}{key}")
-            
-            if subtree[key] is not None: # 如果是目录
+            if subtree[key] is not None:
                 new_prefix = prefix + ("    " if is_last else "│   ")
                 build_tree_lines(subtree[key], new_prefix)
 
     build_tree_lines(tree)
-
-    # 格式化最终输出
-    header = "# 项目文件树\n\n"
-    body = "\n".join(tree_lines)
-    return f"{header}```\n{body}\n```\n\n"
+    return "# Project Tree\n\n```\n" + "\n".join(tree_lines) + "\n```\n\n"
 
 def generate_context(root_path, config):
-    """遍历文件夹并生成代码上下文"""
-    file_tree = generate_file_tree(root_path, config)
-
-    full_context = [config.get('preamble_text', ''), file_tree]
-    root_path = os.path.abspath(root_path)
+    full_context = [config.get('preamble_text', ''), generate_file_tree(root_path, config)]
     
-    ignore_patterns = config.get('ignore_patterns', [])
-    ignore_dirs_set = set(config.get('ignore_dirs', []))
-    ignore_files_set = set(config.get('ignore_files', []))
-    binary_extensions = config.get('binary_extensions', [])
-    process_subfolders = config.get('process_subfolders', True) # 获取配置
-    
-    print(f"正在扫描项目: {root_path}")
-    print(f"扫描模式: {'递归扫描子文件夹' if process_subfolders else '只扫描根目录'}")
+    print(f"开始扫描: {root_path}")
     
     for foldername, subfolders, filenames in os.walk(root_path, topdown=True):
+        rel_dir = os.path.relpath(foldername, root_path)
+        if rel_dir == '.': rel_dir = ''
         
-        # --- 核心修复开始 ---
-        # 1. 首先，如果在任何层级遇到忽略目录，都应该剔除，防止 os.walk 进入
-        subfolders[:] = [d for d in subfolders if d not in ignore_dirs_set]
+        # --- 过滤目录 ---
+        subfolders[:] = [d for d in subfolders if not should_ignore(d, os.path.join(rel_dir, d), config)]
+        if config.get('include'):
+             subfolders[:] = [d for d in subfolders if should_include(d, os.path.join(rel_dir, d), config)]
         
-        # 2. 处理是否递归的逻辑
-        if foldername == root_path:
-            if not process_subfolders:
-                subfolders[:] = [] # 如果配置不递归，清空子目录列表，os.walk 将停止深入
-        # --- 核心修复结束 ---
-        
+        if foldername == root_path and not config.get('process_subfolders', True):
+             subfolders[:] = []
+
+        # --- 处理文件 ---
         for filename in filenames:
-            if filename in ignore_files_set:
-                continue
+            file_rel_path = os.path.join(rel_dir, filename)
+            
+            # 过滤
+            if should_ignore(filename, file_rel_path, config): continue
+            if not should_include(filename, file_rel_path, config): continue
             
             full_filepath = os.path.join(foldername, filename)
-            relative_path = os.path.relpath(full_filepath, root_path)
-            
-            if any(relative_path.lower().endswith(ext) for ext in binary_extensions):
-                continue
             
             try:
-                if os.path.getsize(full_filepath) / 1024 > config.get('max_file_size_kb', 200):
-                    print(f"  - 跳过过大文件: {relative_path}")
+                if os.path.getsize(full_filepath) / 1024 > config.get('max_file_size_kb'):
+                    print(f"  - 跳过大文件: {file_rel_path}")
                     continue
-            except Exception:
-                continue
-
-            try:
+                
                 with open(full_filepath, 'r', encoding='utf-8', errors='ignore') as f:
                     content = f.read()
                 
-                filtered_content = filter_content(content, ignore_patterns)
-                lang = get_syntax_lang(relative_path)
+                content = filter_content(content, config.get('ignore_patterns', []))
+                ext = os.path.splitext(filename)[1]
                 
-                block = f"--- {relative_path} ---\n```{lang}\n{filtered_content.strip()}\n```\n\n"
+                block = f"--- {file_rel_path} ---\n```{ext.lstrip('.')}\n{content.strip()}\n```\n\n"
                 full_context.append(block)
                 
             except Exception:
                 pass
-
+                
     return "".join(full_context)
 
-
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="为 AI 上下文生成项目代码快照。")
-    parser.add_argument('path', nargs='?', default=None, help='(可选) 要扫描的项目文件夹路径，会覆盖配置文件中的设置。')
+    parser = argparse.ArgumentParser(description="AI Context Generator")
+    parser.add_argument('path', nargs='?', default=None)
     args = parser.parse_args()
     
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    config = load_config(script_dir)
     
-    project_root_path = args.path if args.path else config.get('project_path', '.')
+    # 1. 初始加载获取 project_path
+    temp_config = load_config(script_dir)
+    project_path = args.path if args.path else temp_config.get('project_path', '.')
     
-    if not os.path.isabs(project_root_path):
-        project_root = os.path.abspath(os.path.join(script_dir, project_root_path))
-    else:
-        project_root = project_root_path
-
-    if args.path:
-        print(f"ℹ️ 使用命令行参数指定的项目路径: {project_root}")
-    else:
-        print(f"ℹ️ 使用配置文件指定的项目路径: {project_root}")
+    if not os.path.isabs(project_path):
+        project_path = os.path.abspath(os.path.join(script_dir, project_path))
         
-    if not os.path.isdir(project_root):
-        print(f"❌ 错误: 指定的路径 '{project_root}' 不是一个有效的文件夹。")
+    if not os.path.isdir(project_path):
+        print(f"❌ 路径不存在: {project_path}")
         sys.exit(1)
-
-    context = generate_context(project_root, config)
-    output_filename = config.get('output_filename', 'ai_context_snapshot.txt')
-    
-    try:
-        output_filepath = os.path.join(project_root, output_filename)
-        # 推荐使用 'utf-8'，'utf-8-sig' 主要用于解决旧版 Windows Excel 等软件的兼容性问题
-        with open(output_filepath, 'w', encoding='utf-8') as f:
-            f.write(context)
-            
-        print("-" * 50)
-        print(f"✅ 上下文已成功生成并保存到文件: {output_filepath}")
-        print(f"   文件大小: {len(context) / 1024:.2f} KB")
-        print("-" * 50)
         
-    except Exception as e:
-        print(f"❌ 写入文件时发生错误: {e}")
-        sys.exit(1)
+    # 2. 重新加载，这次传入 project_path 以读取项目级配置
+    final_config = load_config(script_dir, project_path)
+    
+    # 更新最终路径
+    final_config['project_path'] = project_path 
+    
+    output_content = generate_context(project_path, final_config)
+    
+    out_file = os.path.join(project_path, final_config['output_filename'])
+    with open(out_file, 'w', encoding='utf-8') as f:
+        f.write(output_content)
+        
+    print(f"\n✅ 完成! 输出文件: {out_file} ({len(output_content)/1024:.1f} KB)")

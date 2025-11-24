@@ -1,0 +1,1093 @@
+# Project Context Snapshot
+
+# Project Tree
+
+```
+📁 2511031代码上下文提取/
+├── 📄 ai_context_snapshot.txt
+├── 📄 config.json
+├── 📄 config.md
+├── 📄 config.yaml
+├── 📄 context_generator.py
+└── 📄 context_generator_json.py
+```
+
+--- ai_context_snapshot.txt ---
+```txt
+# Project Context Snapshot
+
+# Project Tree
+
+```
+📁 2511031代码上下文提取/
+├── 📄 config.json
+├── 📄 config.md
+├── 📄 config.yaml
+├── 📄 context_generator.py
+└── 📄 context_generator_json.py
+```
+
+--- config.json ---
+```json
+{
+    "output_filename": "my_ai_context.txt",
+    "ignore_dirs": [
+        "temp_data",
+        "uploads"
+    ],
+    "ignore_files": [
+        "settings.local.py"
+    ],
+    "max_file_size_kb": 500,
+    "preamble_text": "这是一个Django项目，请帮我检查models.py文件中的安全漏洞。\n\n",
+    "ignore_patterns": [
+        "#  Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved."
+    ]
+}
+```
+
+--- config.md ---
+```md
+```json
+{
+    "output_filename": "my_ai_context.txt",
+    "ignore_dirs": [
+        "temp_data",
+        "uploads"
+    ],
+    "ignore_files": [
+        // "settings.local.py"
+    ],
+    "max_file_size_kb": 500,
+    "preamble_text": "这是一个Django项目，请帮我检查models.py文件中的安全漏洞。\n\n",
+    "ignore_patterns": [
+        "#  Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved."
+    ]
+}
+```
+```
+
+--- config.yaml ---
+```yaml
+# --- AI 上下文生成器配置 ---
+# 此处为脚本通用配置，项目级配置为project_path/.context_rules.yaml
+
+# [核心配置] 要扫描的项目文件夹路径
+# '.' 表示 config.yaml 文件所在的当前文件夹
+# 你也可以使用相对路径，例如: '../my_other_project' 或 './src'
+project_path: D:\PFile\项目\25071软件能力可信\250709科目一上机编程\代码库\2511201graphrag\新建文件夹\graphrag
+
+# 输出文件的名称
+output_filename: context_snapshot.txt
+
+# [新增] 是否扫描子文件夹 (true: 扫描, false: 只扫描当前文件夹)
+# 设置为 false 后，脚本将只提取项目根目录下的文件。
+process_subfolders: true
+
+# [统一黑名单] 
+# 包含要忽略的文件夹名、文件名或路径模式
+# 这里放所有项目通用的忽略项
+ignore:
+  - .git
+  - .idea
+  - .vscode
+  - node_modules
+  - venv
+  - __pycache__
+  - dist
+  - build
+  # 忽略常见二进制和无关文件
+  - *.pyc
+  - *.exe
+  - *.dll
+  - *.so
+  - *.zip
+  - *.pdf
+  - *.jpg
+  - *.png
+  - package-lock.json
+  - yarn.lock
+
+# [统一白名单]
+# 全局配置通常留空，表示“默认读取所有内容”
+# 如果你在全局设置了这里，所有项目都会变成只读取这些文件
+include: 
+  # - src/  <-- 如果取消注释，所有项目默认只读 src
+
+# 单个文件的最大大小限制 (单位 KB)，超过此大小的文件将被跳过
+max_file_size_kb: 200
+
+# 添加到输出文件开头的前言文本，可以给 AI 提供指令
+# 使用 | 可以保留换行符，非常适合多行文本
+preamble_text: |
+  这是一个 Python Django 项目。
+  请帮我分析代码结构，并找出潜在的性能问题。
+
+# 在文件内容中需要屏蔽的词语或句子（整行屏蔽）
+# 非常适合用来过滤掉自动生成的注释、版权信息或调试代码
+ignore_patterns:
+  # - "Copyright (c) Huawei Technologies Co., Ltd."
+  # - "Copyright (c)" # 屏蔽包含版权信息的行
+```
+
+--- context_generator.py ---
+```py
+import os
+import argparse
+import sys
+import fnmatch
+
+try:
+    import yaml
+except ImportError:
+    print("❌ 错误: PyYAML 库未安装。请运行 'pip install PyYAML' 来安装它。")
+    sys.exit(1)
+
+# --- 默认全局配置 ---
+DEFAULT_CONFIG = {
+    "project_path": ".",
+    "output_filename": "ai_context_snapshot.txt",
+    "max_file_size_kb": 200,
+    "process_subfolders": True,
+    # 统一的黑名单：支持文件夹名、文件名、通配符
+    "ignore": [
+        ".git", "node_modules", "__pycache__", "dist", "build", ".vscode", "venv", ".idea",
+        "*.pyc", "*.png", "*.jpg", "*.svg", "*.exe", "*.zip", "*.pdf", "package-lock.json"
+    ],
+    # 统一的白名单：如果设置了内容，则只扫描匹配的路径；为空则扫描所有
+    "include": [], 
+    "preamble_text": "# Project Context Snapshot\n\n",
+    "ignore_patterns": [] # 内容过滤
+}
+
+PROJECT_CONFIG_NAME = ".context_rules.yaml"  # 项目文件夹内的配置文件名
+
+def merge_config(base_config, new_config):
+    """合并配置：列表追加，其他类型覆盖"""
+    if not new_config:
+        return base_config
+    
+    merged = base_config.copy()
+    for key, value in new_config.items():
+        # 处理 YAML 中列表全被注释导致 value 为 None 的情况
+        if value is None:
+            if isinstance(base_config.get(key), list):
+                value = []
+            else:
+                continue # 如果不是列表且为None，通常忽略或保持默认
+        
+        # 列表类型 -> 追加 (去重)
+        if isinstance(value, list) and isinstance(merged.get(key), list):
+            # 简单的去重合并，保持顺序
+            current_list = merged[key]
+            for item in value:
+                if item not in current_list:
+                    current_list.append(item)
+        # 其他类型 -> 覆盖
+        else:
+            merged[key] = value
+    return merged
+
+def load_config(script_dir, project_root=None):
+    """加载全局配置，并尝试加载项目级配置"""
+    # 1. 加载默认配置
+    config = DEFAULT_CONFIG.copy()
+    
+    # 2. 加载全局 config.yaml
+    global_config_path = os.path.join(script_dir, 'config.yaml')
+    if os.path.exists(global_config_path):
+        try:
+            with open(global_config_path, 'r', encoding='utf-8') as f:
+                global_yml = yaml.safe_load(f)
+                config = merge_config(config, global_yml)
+            print(f"✅ 已加载全局配置: {global_config_path}")
+        except Exception as e:
+            print(f"⚠️ 加载全局配置出错: {e}")
+
+    # 3. 加载项目级配置 (如果存在)
+    if project_root:
+        project_config_path = os.path.join(project_root, PROJECT_CONFIG_NAME)
+        if os.path.exists(project_config_path):
+            try:
+                with open(project_config_path, 'r', encoding='utf-8') as f:
+                    proj_yml = yaml.safe_load(f)
+                    config = merge_config(config, proj_yml)
+                print(f"✅ 已加载项目级配置: {project_config_path}")
+            except Exception as e:
+                print(f"⚠️ 加载项目配置出错: {e}")
+    
+    # 确保关键字段是列表
+    for key in ["ignore", "include", "ignore_patterns"]:
+        if config.get(key) is None: config[key] = []
+        
+    return config
+
+def should_ignore(name, relative_path, config):
+    """检查文件/文件夹是否应该被忽略 (黑名单)"""
+    ignore_rules = config.get('ignore', [])
+    
+    # 1. 检查名称匹配 (如 'node_modules', '*.pyc')
+    for pattern in ignore_rules:
+        if fnmatch.fnmatch(name, pattern):
+            return True
+            
+    # 2. 检查路径匹配 (如 'src/temp/*')
+    # 将路径分隔符统一为 /
+    normalized_path = relative_path.replace(os.sep, '/')
+    for pattern in ignore_rules:
+        if fnmatch.fnmatch(normalized_path, pattern):
+            return True
+            
+    return False
+
+def should_include(name, relative_path, config):
+    """检查文件/文件夹是否在白名单中 (如果有白名单)"""
+    include_rules = config.get('include', [])
+    
+    # 如果白名单为空，默认全选 (返回 True)
+    if not include_rules:
+        return True
+        
+    normalized_path = relative_path.replace(os.sep, '/')
+    
+    # 检查是否匹配任何白名单规则
+    # 注意：对于文件夹，如果它是白名单路径的父级，也必须包含，否则无法递归进去
+    # 例如 include: ['src/utils'], 那么 'src' 必须被包含
+    
+    is_match = False
+    for pattern in include_rules:
+        # 精确匹配或通配符匹配
+        if fnmatch.fnmatch(name, pattern) or fnmatch.fnmatch(normalized_path, pattern):
+            return True
+        
+        # 路径前缀检查 (用于递归)
+        # 如果 pattern 是 'src/utils', 当前 path 是 'src'，应该允许进入
+        if pattern.startswith(normalized_path + '/'):
+            return True
+            
+    return False
+
+def filter_content(content, patterns):
+    if not patterns: return content
+    lines = content.splitlines()
+    filtered_lines = [line for line in lines if not any(p in line for p in patterns)]
+    return "\n".join(filtered_lines)
+
+def generate_file_tree(root_path, config):
+    tree_lines = []
+    tree_lines.append(f"📁 {os.path.basename(root_path)}/")
+    
+    ignore_rules = config.get('ignore', [])
+    
+    tree = {}
+    
+    for foldername, subfolders, filenames in os.walk(root_path, topdown=True):
+        rel_dir = os.path.relpath(foldername, root_path)
+        if rel_dir == '.': rel_dir = ''
+        
+        # --- 过滤目录 (原地修改 subfolders) ---
+        # 1. 黑名单过滤
+        subfolders[:] = [d for d in subfolders if not should_ignore(d, os.path.join(rel_dir, d), config)]
+        # 2. 白名单过滤
+        if config.get('include'):
+             subfolders[:] = [d for d in subfolders if should_include(d, os.path.join(rel_dir, d), config)]
+        
+        # 如果不处理子文件夹，且当前是根目录，清空子目录
+        if not config.get('process_subfolders', True) and foldername == root_path:
+            subfolders[:] = []
+
+        # --- 过滤文件 ---
+        filtered_files = []
+        for filename in sorted(filenames):
+            file_rel_path = os.path.join(rel_dir, filename)
+            
+            # 黑名单
+            if should_ignore(filename, file_rel_path, config): continue
+            # 白名单
+            if not should_include(filename, file_rel_path, config): continue
+            
+            # 大小检查 (树结构可以不检查大小，也可以检查，这里为了简洁只在读取时严格检查)
+            filtered_files.append(filename)
+
+        # --- 构建树 ---
+        path_parts = rel_dir.split(os.sep) if rel_dir else []
+        current_level = tree
+        for part in path_parts:
+            current_level = current_level.setdefault(f"📁 {part}", {})
+            
+        for d in subfolders:
+            current_level.setdefault(f"📁 {d}", {})
+        for f in filtered_files:
+            current_level[f"📄 {f}"] = None
+
+    def build_tree_lines(subtree, prefix=""):
+        items = sorted(subtree.keys())
+        for i, key in enumerate(items):
+            is_last = (i == len(items) - 1)
+            connector = "└── " if is_last else "├── "
+            tree_lines.append(f"{prefix}{connector}{key}")
+            if subtree[key] is not None:
+                new_prefix = prefix + ("    " if is_last else "│   ")
+                build_tree_lines(subtree[key], new_prefix)
+
+    build_tree_lines(tree)
+    return "# Project Tree\n\n```\n" + "\n".join(tree_lines) + "\n```\n\n"
+
+def generate_context(root_path, config):
+    full_context = [config.get('preamble_text', ''), generate_file_tree(root_path, config)]
+    
+    print(f"开始扫描: {root_path}")
+    
+    for foldername, subfolders, filenames in os.walk(root_path, topdown=True):
+        rel_dir = os.path.relpath(foldername, root_path)
+        if rel_dir == '.': rel_dir = ''
+        
+        # --- 过滤目录 ---
+        subfolders[:] = [d for d in subfolders if not should_ignore(d, os.path.join(rel_dir, d), config)]
+        if config.get('include'):
+             subfolders[:] = [d for d in subfolders if should_include(d, os.path.join(rel_dir, d), config)]
+        
+        if foldername == root_path and not config.get('process_subfolders', True):
+             subfolders[:] = []
+
+        # --- 处理文件 ---
+        for filename in filenames:
+            file_rel_path = os.path.join(rel_dir, filename)
+            
+            # 过滤
+            if should_ignore(filename, file_rel_path, config): continue
+            if not should_include(filename, file_rel_path, config): continue
+            
+            full_filepath = os.path.join(foldername, filename)
+            
+            try:
+                if os.path.getsize(full_filepath) / 1024 > config.get('max_file_size_kb'):
+                    print(f"  - 跳过大文件: {file_rel_path}")
+                    continue
+                
+                with open(full_filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                
+                content = filter_content(content, config.get('ignore_patterns', []))
+                ext = os.path.splitext(filename)[1]
+                
+                block = f"--- {file_rel_path} ---\n```{ext.lstrip('.')}\n{content.strip()}\n```\n\n"
+                full_context.append(block)
+                
+            except Exception:
+                pass
+                
+    return "".join(full_context)
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="AI Context Generator")
+    parser.add_argument('path', nargs='?', default=None)
+    args = parser.parse_args()
+    
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # 1. 初始加载获取 project_path
+    temp_config = load_config(script_dir)
+    project_path = args.path if args.path else temp_config.get('project_path', '.')
+    
+    if not os.path.isabs(project_path):
+        project_path = os.path.abspath(os.path.join(script_dir, project_path))
+        
+    if not os.path.isdir(project_path):
+        print(f"❌ 路径不存在: {project_path}")
+        sys.exit(1)
+        
+    # 2. 重新加载，这次传入 project_path 以读取项目级配置
+    final_config = load_config(script_dir, project_path)
+    
+    # 更新最终路径
+    final_config['project_path'] = project_path 
+    
+    output_content = generate_context(project_path, final_config)
+    
+    out_file = os.path.join(project_path, final_config['output_filename'])
+    with open(out_file, 'w', encoding='utf-8') as f:
+        f.write(output_content)
+        
+    print(f"\n✅ 完成! 输出文件: {out_file} ({len(output_content)/1024:.1f} KB)")
+```
+
+--- context_generator_json.py ---
+```py
+import os
+import argparse
+import json
+import sys
+
+# 默认配置
+DEFAULT_CONFIG = {
+    "output_filename": "ai_context_snapshot.txt",
+    "ignore_dirs": [
+        ".git", "node_modules", "__pycache__", "dist", "build", 
+        ".vscode", ".idea", "venv", "env", "logs"
+    ],
+    "ignore_files": [
+        ".gitignore", "README.md", "LICENSE", "package-lock.json", 
+        "context_generator.py", "config.json"
+    ],
+    "binary_extensions": [
+        ".png", ".jpg", ".jpeg", ".svg", ".ico", ".pdf", ".zip", 
+        ".tar", ".gz", ".exe", ".dll", ".bin", ".mp4", ".mov"
+    ],
+    "max_file_size_kb": 200,
+    "preamble_text": "# Project Context Snapshot\n\n",
+    "ignore_patterns": [] # 新增：用于屏蔽特定词语或句子的列表
+}
+
+def load_config(root_path):
+    """尝试从项目根目录加载配置，并合并默认配置。"""
+    config_path = os.path.join(root_path, 'config.json')
+    user_config = {}
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                user_config = json.load(f)
+            print(f"✅ 成功加载配置文件: {config_path}")
+        except json.JSONDecodeError:
+            print(f"❌ 错误: 配置文件 '{config_path}' 格式不正确，将使用默认配置。")
+        except Exception as e:
+            print(f"❌ 错误: 读取配置文件时发生意外错误: {e}")
+            
+    config = DEFAULT_CONFIG.copy()
+    config.update(user_config)
+    return config
+
+def get_syntax_lang(filepath):
+    """根据文件扩展名返回代码块语言提示"""
+    extension_map = {
+        '.py': 'python', '.js': 'javascript', '.ts': 'typescript',
+        '.jsx': 'jsx', '.tsx': 'tsx', '.html': 'html',
+        '.css': 'css', '.scss': 'scss', '.json': 'json',
+        '.md': 'markdown', '.java': 'java', '.go': 'go',
+        '.sh': 'bash', '.yaml': 'yaml', '.yml': 'yaml',
+    }
+    ext = os.path.splitext(filepath)[1].lower()
+    return extension_map.get(ext, '')
+
+def filter_content(content, patterns):
+    """根据提供的模式列表过滤文件内容。"""
+    if not patterns:
+        return content
+    
+    lines = content.splitlines()
+    # 只保留不包含任何屏蔽模式的行
+    filtered_lines = [line for line in lines if not any(pattern in line for pattern in patterns)]
+    return "\n".join(filtered_lines)
+
+def generate_context(root_path, config):
+    """遍历文件夹并生成代码上下文"""
+    full_context = [config['preamble_text']]
+    root_path = os.path.abspath(root_path)
+    ignore_patterns = config.get('ignore_patterns', [])
+    
+    for foldername, subfolders, filenames in os.walk(root_path, topdown=True):
+        
+        subfolders[:] = [d for d in subfolders if d not in config['ignore_dirs']]
+
+        for filename in filenames:
+            
+            full_filepath = os.path.join(foldername, filename)
+            relative_path = os.path.relpath(full_filepath, root_path)
+            
+            if filename in config['ignore_files']: continue
+            if any(relative_path.lower().endswith(ext) for ext in config['binary_extensions']): continue
+            
+            try:
+                if os.path.getsize(full_filepath) / 1024 > config['max_file_size_kb']:
+                    print(f"跳过过大文件: {relative_path}")
+                    continue
+            except Exception:
+                continue
+
+            try:
+                with open(full_filepath, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                
+                # --- 新增：内容过滤 ---
+                filtered_content = filter_content(content, ignore_patterns)
+                # ---------------------
+                
+                lang = get_syntax_lang(relative_path)
+                
+                block = (
+                    f"{relative_path}\n"
+                    f"```{lang}\n"
+                    f"{filtered_content.strip()}\n"
+                    f"```\n\n"
+                )
+                full_context.append(block)
+                
+            except UnicodeDecodeError:
+                pass
+            except Exception as e:
+                print(f"处理文件 {relative_path} 时发生错误: {e}")
+
+    return "".join(full_context)
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="为 AI 上下文生成项目代码快照。")
+    parser.add_argument('project_path', nargs='?', default='.', help='项目文件夹的路径 (例如: . 或 /path/to/my/project)')
+    args = parser.parse_args()
+    
+    project_root = args.project_path
+    
+    config = load_config(project_root)
+    output_filename = config['output_filename']
+    
+    print(f"正在扫描项目: {os.path.abspath(project_root)}")
+    
+    context = generate_context(project_root, config)
+    
+    try:
+        output_filepath = os.path.join(project_root, output_filename)
+        with open(output_filepath, 'w', encoding='utf-8') as f:
+            f.write(context)
+            
+        print("-" * 50)
+        print(f"✅ 上下文已成功生成并保存到文件: {output_filepath}")
+        print(f"文件大小: {len(context) / 1024:.2f} KB")
+        print("请复制该文件的内容用于 AI 交流。")
+        print("-" * 50)
+        
+    except Exception as e:
+        print(f"❌ 写入文件时发生错误: {e}")
+        sys.exit(1)
+```
+```
+
+--- config.json ---
+```json
+{
+    "output_filename": "my_ai_context.txt",
+    "ignore_dirs": [
+        "temp_data",
+        "uploads"
+    ],
+    "ignore_files": [
+        "settings.local.py"
+    ],
+    "max_file_size_kb": 500,
+    "preamble_text": "这是一个Django项目，请帮我检查models.py文件中的安全漏洞。\n\n",
+    "ignore_patterns": [
+        "#  Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved."
+    ]
+}
+```
+
+--- config.md ---
+```md
+```json
+{
+    "output_filename": "my_ai_context.txt",
+    "ignore_dirs": [
+        "temp_data",
+        "uploads"
+    ],
+    "ignore_files": [
+        // "settings.local.py"
+    ],
+    "max_file_size_kb": 500,
+    "preamble_text": "这是一个Django项目，请帮我检查models.py文件中的安全漏洞。\n\n",
+    "ignore_patterns": [
+        "#  Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved."
+    ]
+}
+```
+```
+
+--- config.yaml ---
+```yaml
+# --- AI 上下文生成器配置 ---
+# 此处为脚本通用配置，项目级配置为project_path/.context_rules.yaml
+
+# [核心配置] 要扫描的项目文件夹路径
+# '.' 表示 config.yaml 文件所在的当前文件夹
+# 你也可以使用相对路径，例如: '../my_other_project' 或 './src'
+project_path: D:\PFile\项目\25071软件能力可信\250709科目一上机编程\代码库\2511201graphrag\新建文件夹\graphrag
+
+# 输出文件的名称
+output_filename: context_snapshot.txt
+
+# [新增] 是否扫描子文件夹 (true: 扫描, false: 只扫描当前文件夹)
+# 设置为 false 后，脚本将只提取项目根目录下的文件。
+process_subfolders: true
+
+# [统一黑名单] 
+# 包含要忽略的文件夹名、文件名或路径模式
+# 这里放所有项目通用的忽略项
+ignore:
+  - .git
+  - .idea
+  - .vscode
+  - node_modules
+  - venv
+  - __pycache__
+  - dist
+  - build
+  - *.pyc   # 忽略常见二进制和无关文件
+  - *.exe
+  - *.dll
+  - *.so
+  - *.zip
+  - *.pdf
+  - *.jpg
+  - *.png
+  - package-lock.json
+  - yarn.lock
+
+# [统一白名单]
+# 全局配置通常留空，表示“默认读取所有内容”
+# 如果你在全局设置了这里，所有项目都会变成只读取这些文件
+include: 
+  # - src/  <-- 如果取消注释，所有项目默认只读 src
+
+# 单个文件的最大大小限制 (单位 KB)，超过此大小的文件将被跳过
+max_file_size_kb: 200
+
+# 添加到输出文件开头的前言文本，可以给 AI 提供指令
+# 使用 | 可以保留换行符，非常适合多行文本
+preamble_text: |
+  这是一个 Python Django 项目。
+  请帮我分析代码结构，并找出潜在的性能问题。
+
+# 在文件内容中需要屏蔽的词语或句子（整行屏蔽）
+# 非常适合用来过滤掉自动生成的注释、版权信息或调试代码
+ignore_patterns:
+  # - "Copyright (c) Huawei Technologies Co., Ltd."
+  # - "Copyright (c)" # 屏蔽包含版权信息的行
+```
+
+--- context_generator.py ---
+```py
+import os
+import argparse
+import sys
+import fnmatch
+
+try:
+    import yaml
+except ImportError:
+    print("❌ 错误: PyYAML 库未安装。请运行 'pip install PyYAML' 来安装它。")
+    sys.exit(1)
+
+# --- 默认全局配置 ---
+DEFAULT_CONFIG = {
+    "project_path": ".",
+    "output_filename": "ai_context_snapshot.txt",
+    "max_file_size_kb": 200,
+    "process_subfolders": True,
+    # 统一的黑名单：支持文件夹名、文件名、通配符
+    "ignore": [
+        ".git", "node_modules", "__pycache__", "dist", "build", ".vscode", "venv", ".idea",
+        "*.pyc", "*.png", "*.jpg", "*.svg", "*.exe", "*.zip", "*.pdf", "package-lock.json"
+    ],
+    # 统一的白名单：如果设置了内容，则只扫描匹配的路径；为空则扫描所有
+    "include": [], 
+    "preamble_text": "# Project Context Snapshot\n\n",
+    "ignore_patterns": [] # 内容过滤
+}
+
+PROJECT_CONFIG_NAME = ".context_rules.yaml"  # 项目文件夹内的配置文件名
+
+def merge_config(base_config, new_config):
+    """合并配置：列表追加，其他类型覆盖"""
+    if not new_config:
+        return base_config
+    
+    merged = base_config.copy()
+    for key, value in new_config.items():
+        # 处理 YAML 中列表全被注释导致 value 为 None 的情况
+        if value is None:
+            if isinstance(base_config.get(key), list):
+                value = []
+            else:
+                continue # 如果不是列表且为None，通常忽略或保持默认
+        
+        # 列表类型 -> 追加 (去重)
+        if isinstance(value, list) and isinstance(merged.get(key), list):
+            # 简单的去重合并，保持顺序
+            current_list = merged[key]
+            for item in value:
+                if item not in current_list:
+                    current_list.append(item)
+        # 其他类型 -> 覆盖
+        else:
+            merged[key] = value
+    return merged
+
+def load_config(script_dir, project_root=None):
+    """加载全局配置，并尝试加载项目级配置"""
+    # 1. 加载默认配置
+    config = DEFAULT_CONFIG.copy()
+    
+    # 2. 加载全局 config.yaml
+    global_config_path = os.path.join(script_dir, 'config.yaml')
+    if os.path.exists(global_config_path):
+        try:
+            with open(global_config_path, 'r', encoding='utf-8') as f:
+                global_yml = yaml.safe_load(f)
+                config = merge_config(config, global_yml)
+            print(f"✅ 已加载全局配置: {global_config_path}")
+        except Exception as e:
+            print(f"⚠️ 加载全局配置出错: {e}")
+
+    # 3. 加载项目级配置 (如果存在)
+    if project_root:
+        project_config_path = os.path.join(project_root, PROJECT_CONFIG_NAME)
+        if os.path.exists(project_config_path):
+            try:
+                with open(project_config_path, 'r', encoding='utf-8') as f:
+                    proj_yml = yaml.safe_load(f)
+                    config = merge_config(config, proj_yml)
+                print(f"✅ 已加载项目级配置: {project_config_path}")
+            except Exception as e:
+                print(f"⚠️ 加载项目配置出错: {e}")
+    
+    # 确保关键字段是列表
+    for key in ["ignore", "include", "ignore_patterns"]:
+        if config.get(key) is None: config[key] = []
+        
+    return config
+
+def should_ignore(name, relative_path, config):
+    """检查文件/文件夹是否应该被忽略 (黑名单)"""
+    ignore_rules = config.get('ignore', [])
+    
+    # 1. 检查名称匹配 (如 'node_modules', '*.pyc')
+    for pattern in ignore_rules:
+        if fnmatch.fnmatch(name, pattern):
+            return True
+            
+    # 2. 检查路径匹配 (如 'src/temp/*')
+    # 将路径分隔符统一为 /
+    normalized_path = relative_path.replace(os.sep, '/')
+    for pattern in ignore_rules:
+        if fnmatch.fnmatch(normalized_path, pattern):
+            return True
+            
+    return False
+
+def should_include(name, relative_path, config):
+    """检查文件/文件夹是否在白名单中 (如果有白名单)"""
+    include_rules = config.get('include', [])
+    
+    # 如果白名单为空，默认全选 (返回 True)
+    if not include_rules:
+        return True
+        
+    normalized_path = relative_path.replace(os.sep, '/')
+    
+    # 检查是否匹配任何白名单规则
+    # 注意：对于文件夹，如果它是白名单路径的父级，也必须包含，否则无法递归进去
+    # 例如 include: ['src/utils'], 那么 'src' 必须被包含
+    
+    is_match = False
+    for pattern in include_rules:
+        # 精确匹配或通配符匹配
+        if fnmatch.fnmatch(name, pattern) or fnmatch.fnmatch(normalized_path, pattern):
+            return True
+        
+        # 路径前缀检查 (用于递归)
+        # 如果 pattern 是 'src/utils', 当前 path 是 'src'，应该允许进入
+        if pattern.startswith(normalized_path + '/'):
+            return True
+            
+    return False
+
+def filter_content(content, patterns):
+    if not patterns: return content
+    lines = content.splitlines()
+    filtered_lines = [line for line in lines if not any(p in line for p in patterns)]
+    return "\n".join(filtered_lines)
+
+def generate_file_tree(root_path, config):
+    tree_lines = []
+    tree_lines.append(f"📁 {os.path.basename(root_path)}/")
+    
+    ignore_rules = config.get('ignore', [])
+    
+    tree = {}
+    
+    for foldername, subfolders, filenames in os.walk(root_path, topdown=True):
+        rel_dir = os.path.relpath(foldername, root_path)
+        if rel_dir == '.': rel_dir = ''
+        
+        # --- 过滤目录 (原地修改 subfolders) ---
+        # 1. 黑名单过滤
+        subfolders[:] = [d for d in subfolders if not should_ignore(d, os.path.join(rel_dir, d), config)]
+        # 2. 白名单过滤
+        if config.get('include'):
+             subfolders[:] = [d for d in subfolders if should_include(d, os.path.join(rel_dir, d), config)]
+        
+        # 如果不处理子文件夹，且当前是根目录，清空子目录
+        if not config.get('process_subfolders', True) and foldername == root_path:
+            subfolders[:] = []
+
+        # --- 过滤文件 ---
+        filtered_files = []
+        for filename in sorted(filenames):
+            file_rel_path = os.path.join(rel_dir, filename)
+            
+            # 黑名单
+            if should_ignore(filename, file_rel_path, config): continue
+            # 白名单
+            if not should_include(filename, file_rel_path, config): continue
+            
+            # 大小检查 (树结构可以不检查大小，也可以检查，这里为了简洁只在读取时严格检查)
+            filtered_files.append(filename)
+
+        # --- 构建树 ---
+        path_parts = rel_dir.split(os.sep) if rel_dir else []
+        current_level = tree
+        for part in path_parts:
+            current_level = current_level.setdefault(f"📁 {part}", {})
+            
+        for d in subfolders:
+            current_level.setdefault(f"📁 {d}", {})
+        for f in filtered_files:
+            current_level[f"📄 {f}"] = None
+
+    def build_tree_lines(subtree, prefix=""):
+        items = sorted(subtree.keys())
+        for i, key in enumerate(items):
+            is_last = (i == len(items) - 1)
+            connector = "└── " if is_last else "├── "
+            tree_lines.append(f"{prefix}{connector}{key}")
+            if subtree[key] is not None:
+                new_prefix = prefix + ("    " if is_last else "│   ")
+                build_tree_lines(subtree[key], new_prefix)
+
+    build_tree_lines(tree)
+    return "# Project Tree\n\n```\n" + "\n".join(tree_lines) + "\n```\n\n"
+
+def generate_context(root_path, config):
+    full_context = [config.get('preamble_text', ''), generate_file_tree(root_path, config)]
+    
+    print(f"开始扫描: {root_path}")
+    
+    for foldername, subfolders, filenames in os.walk(root_path, topdown=True):
+        rel_dir = os.path.relpath(foldername, root_path)
+        if rel_dir == '.': rel_dir = ''
+        
+        # --- 过滤目录 ---
+        subfolders[:] = [d for d in subfolders if not should_ignore(d, os.path.join(rel_dir, d), config)]
+        if config.get('include'):
+             subfolders[:] = [d for d in subfolders if should_include(d, os.path.join(rel_dir, d), config)]
+        
+        if foldername == root_path and not config.get('process_subfolders', True):
+             subfolders[:] = []
+
+        # --- 处理文件 ---
+        for filename in filenames:
+            file_rel_path = os.path.join(rel_dir, filename)
+            
+            # 过滤
+            if should_ignore(filename, file_rel_path, config): continue
+            if not should_include(filename, file_rel_path, config): continue
+            
+            full_filepath = os.path.join(foldername, filename)
+            
+            try:
+                if os.path.getsize(full_filepath) / 1024 > config.get('max_file_size_kb'):
+                    print(f"  - 跳过大文件: {file_rel_path}")
+                    continue
+                
+                with open(full_filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                
+                content = filter_content(content, config.get('ignore_patterns', []))
+                ext = os.path.splitext(filename)[1]
+                
+                block = f"--- {file_rel_path} ---\n```{ext.lstrip('.')}\n{content.strip()}\n```\n\n"
+                full_context.append(block)
+                
+            except Exception:
+                pass
+                
+    return "".join(full_context)
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="AI Context Generator")
+    parser.add_argument('path', nargs='?', default=None)
+    args = parser.parse_args()
+    
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # 1. 初始加载获取 project_path
+    temp_config = load_config(script_dir)
+    project_path = args.path if args.path else temp_config.get('project_path', '.')
+    
+    if not os.path.isabs(project_path):
+        project_path = os.path.abspath(os.path.join(script_dir, project_path))
+        
+    if not os.path.isdir(project_path):
+        print(f"❌ 路径不存在: {project_path}")
+        sys.exit(1)
+        
+    # 2. 重新加载，这次传入 project_path 以读取项目级配置
+    final_config = load_config(script_dir, project_path)
+    
+    # 更新最终路径
+    final_config['project_path'] = project_path 
+    
+    output_content = generate_context(project_path, final_config)
+    
+    out_file = os.path.join(project_path, final_config['output_filename'])
+    with open(out_file, 'w', encoding='utf-8') as f:
+        f.write(output_content)
+        
+    print(f"\n✅ 完成! 输出文件: {out_file} ({len(output_content)/1024:.1f} KB)")
+```
+
+--- context_generator_json.py ---
+```py
+import os
+import argparse
+import json
+import sys
+
+# 默认配置
+DEFAULT_CONFIG = {
+    "output_filename": "ai_context_snapshot.txt",
+    "ignore_dirs": [
+        ".git", "node_modules", "__pycache__", "dist", "build", 
+        ".vscode", ".idea", "venv", "env", "logs"
+    ],
+    "ignore_files": [
+        ".gitignore", "README.md", "LICENSE", "package-lock.json", 
+        "context_generator.py", "config.json"
+    ],
+    "binary_extensions": [
+        ".png", ".jpg", ".jpeg", ".svg", ".ico", ".pdf", ".zip", 
+        ".tar", ".gz", ".exe", ".dll", ".bin", ".mp4", ".mov"
+    ],
+    "max_file_size_kb": 200,
+    "preamble_text": "# Project Context Snapshot\n\n",
+    "ignore_patterns": [] # 新增：用于屏蔽特定词语或句子的列表
+}
+
+def load_config(root_path):
+    """尝试从项目根目录加载配置，并合并默认配置。"""
+    config_path = os.path.join(root_path, 'config.json')
+    user_config = {}
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                user_config = json.load(f)
+            print(f"✅ 成功加载配置文件: {config_path}")
+        except json.JSONDecodeError:
+            print(f"❌ 错误: 配置文件 '{config_path}' 格式不正确，将使用默认配置。")
+        except Exception as e:
+            print(f"❌ 错误: 读取配置文件时发生意外错误: {e}")
+            
+    config = DEFAULT_CONFIG.copy()
+    config.update(user_config)
+    return config
+
+def get_syntax_lang(filepath):
+    """根据文件扩展名返回代码块语言提示"""
+    extension_map = {
+        '.py': 'python', '.js': 'javascript', '.ts': 'typescript',
+        '.jsx': 'jsx', '.tsx': 'tsx', '.html': 'html',
+        '.css': 'css', '.scss': 'scss', '.json': 'json',
+        '.md': 'markdown', '.java': 'java', '.go': 'go',
+        '.sh': 'bash', '.yaml': 'yaml', '.yml': 'yaml',
+    }
+    ext = os.path.splitext(filepath)[1].lower()
+    return extension_map.get(ext, '')
+
+def filter_content(content, patterns):
+    """根据提供的模式列表过滤文件内容。"""
+    if not patterns:
+        return content
+    
+    lines = content.splitlines()
+    # 只保留不包含任何屏蔽模式的行
+    filtered_lines = [line for line in lines if not any(pattern in line for pattern in patterns)]
+    return "\n".join(filtered_lines)
+
+def generate_context(root_path, config):
+    """遍历文件夹并生成代码上下文"""
+    full_context = [config['preamble_text']]
+    root_path = os.path.abspath(root_path)
+    ignore_patterns = config.get('ignore_patterns', [])
+    
+    for foldername, subfolders, filenames in os.walk(root_path, topdown=True):
+        
+        subfolders[:] = [d for d in subfolders if d not in config['ignore_dirs']]
+
+        for filename in filenames:
+            
+            full_filepath = os.path.join(foldername, filename)
+            relative_path = os.path.relpath(full_filepath, root_path)
+            
+            if filename in config['ignore_files']: continue
+            if any(relative_path.lower().endswith(ext) for ext in config['binary_extensions']): continue
+            
+            try:
+                if os.path.getsize(full_filepath) / 1024 > config['max_file_size_kb']:
+                    print(f"跳过过大文件: {relative_path}")
+                    continue
+            except Exception:
+                continue
+
+            try:
+                with open(full_filepath, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                
+                # --- 新增：内容过滤 ---
+                filtered_content = filter_content(content, ignore_patterns)
+                # ---------------------
+                
+                lang = get_syntax_lang(relative_path)
+                
+                block = (
+                    f"{relative_path}\n"
+                    f"```{lang}\n"
+                    f"{filtered_content.strip()}\n"
+                    f"```\n\n"
+                )
+                full_context.append(block)
+                
+            except UnicodeDecodeError:
+                pass
+            except Exception as e:
+                print(f"处理文件 {relative_path} 时发生错误: {e}")
+
+    return "".join(full_context)
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="为 AI 上下文生成项目代码快照。")
+    parser.add_argument('project_path', nargs='?', default='.', help='项目文件夹的路径 (例如: . 或 /path/to/my/project)')
+    args = parser.parse_args()
+    
+    project_root = args.project_path
+    
+    config = load_config(project_root)
+    output_filename = config['output_filename']
+    
+    print(f"正在扫描项目: {os.path.abspath(project_root)}")
+    
+    context = generate_context(project_root, config)
+    
+    try:
+        output_filepath = os.path.join(project_root, output_filename)
+        with open(output_filepath, 'w', encoding='utf-8') as f:
+            f.write(context)
+            
+        print("-" * 50)
+        print(f"✅ 上下文已成功生成并保存到文件: {output_filepath}")
+        print(f"文件大小: {len(context) / 1024:.2f} KB")
+        print("请复制该文件的内容用于 AI 交流。")
+        print("-" * 50)
+        
+    except Exception as e:
+        print(f"❌ 写入文件时发生错误: {e}")
+        sys.exit(1)
+```
+

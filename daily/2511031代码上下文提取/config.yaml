@@ -1,4 +1,5 @@
 # --- AI 上下文生成器配置 ---
+# 此处为脚本通用配置，项目级配置为project_path/.context_rules.yaml
 
 # [核心配置] 要扫描的项目文件夹路径
 # '.' 表示 config.yaml 文件所在的当前文件夹
@@ -6,39 +7,41 @@
 project_path: D:\PFile\项目\25071软件能力可信\250709科目一上机编程\代码库\2511201graphrag\新建文件夹\graphrag
 
 # 输出文件的名称
-output_filename: my_ai_snapshot.txt
+output_filename: context_snapshot.txt
 
 # [新增] 是否扫描子文件夹 (true: 扫描, false: 只扫描当前文件夹)
 # 设置为 false 后，脚本将只提取项目根目录下的文件。
 process_subfolders: true
 
-# 需要完全忽略的文件夹列表
-# 通常是依赖、构建产物或虚拟环境
-ignore_dirs:
+# [统一黑名单] 
+# 包含要忽略的文件夹名、文件名或路径模式
+# 这里放所有项目通用的忽略项
+ignore:
   - .git
+  - .idea
+  - .vscode
   - node_modules
+  - venv
   - __pycache__
   - dist
   - build
-  - venv
-  - .vscode
-  - temp_data # 这是一个自定义的忽略目录
+  # --- 注意：以下以 * 开头的必须加引号 ---
+  - "*.pyc"
+  - "*.exe"
+  - "*.dll"
+  - "*.so"
+  - "*.zip"
+  - "*.pdf"
+  - "*.jpg"
+  - "*.png"
+  - package-lock.json
+  - yarn.lock
 
-# 需要忽略的特定文件列表
-ignore_files:
-  # - .gitignore
-  # - package-lock.json
-  # - settings.local.py # 像这样注释掉就可以临时禁用这一行
-
-# 需要忽略的二进制文件扩展名，防止脚本读取它们时出错
-binary_extensions:
-  - .png
-  - .jpg
-  - .svg
-  - .ico
-  - .pdf
-  - .zip
-  - .exe
+# [统一白名单]
+# 全局配置通常留空，表示“默认读取所有内容”
+# 如果你在全局设置了这里，所有项目都会变成只读取这些文件
+include: 
+  # - src/  <-- 如果取消注释，所有项目默认只读 src
 
 # 单个文件的最大大小限制 (单位 KB)，超过此大小的文件将被跳过
 max_file_size_kb: 200
