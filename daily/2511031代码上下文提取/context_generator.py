@@ -15,6 +15,7 @@ DEFAULT_CONFIG = {
     "output_filename": "ai_context_snapshot.txt",
     "max_file_size_kb": 200,
     "process_subfolders": True,
+    "tree_only": False,
     # 统一的黑名单：支持文件夹名、文件名、通配符
     "ignore": [
         ".git", "node_modules", "__pycache__", "dist", "build", ".vscode", "venv", ".idea",
@@ -207,6 +208,11 @@ def generate_file_tree(root_path, config):
 
 def generate_context(root_path, config):
     full_context = [config.get('preamble_text', ''), generate_file_tree(root_path, config)]
+
+    # 如果开启了仅树模式，直接返回
+    if config.get('tree_only', False):
+        print("🌳 已开启 tree-only 模式：跳过文件内容读取。")
+        return "".join(full_context)
     
     print(f"开始扫描: {root_path}")
     
@@ -254,6 +260,7 @@ def generate_context(root_path, config):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="AI Context Generator")
     parser.add_argument('path', nargs='?', default=None)
+    parser.add_argument('-t', '--tree-only', action='store_true', help='开启后只输出文件树，不包含文件内容')
     args = parser.parse_args()
     
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -272,6 +279,10 @@ if __name__ == "__main__":
     # 2. 重新加载，这次传入 project_path 以读取项目级配置
     final_config = load_config(script_dir, project_path)
     
+    # 将命令行参数应用到配置中
+    if args.tree_only:
+        final_config['tree_only'] = True
+
     # 更新最终路径
     final_config['project_path'] = project_path 
     

@@ -12,6 +12,7 @@ output_filename: context_snapshot.txt
 # [新增] 是否扫描子文件夹 (true: 扫描, false: 只扫描当前文件夹)
 # 设置为 false 后，脚本将只提取项目根目录下的文件。
 process_subfolders: true
+tree_only: true
 
 # [统一黑名单] 
 # 包含要忽略的文件夹名、文件名或路径模式
