@@ -289,7 +289,7 @@ if __name__ == "__main__":
     output_content = generate_context(project_path, final_config)
     
     out_file = os.path.join(project_path, final_config['output_filename'])
-    with open(out_file, 'w', encoding='utf-8') as f:
+    with open(out_file, 'w', encoding='utf-8-sig') as f:
         f.write(output_content)
         
     print(f"\n✅ 完成! 输出文件: {out_file} ({len(output_content)/1024:.1f} KB)")
