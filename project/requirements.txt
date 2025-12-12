@@ -1,0 +1,14 @@
+pandas
+openpyxl
+pyyaml
+langchain
+langchain-community
+langchain-huggingface
+langchain-openai      # 之前漏掉了这个
+langchain-core
+chromadb
+sentence-transformers
+tqdm
+requests              # 内网调用需要用到
+chromadb
+openpyxl

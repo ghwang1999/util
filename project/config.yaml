@@ -1,0 +1,62 @@
+project:
+  name: "VectorRAG_Project"
+
+execution:
+  concurrency: 25          # LLM/RAG 并发数
+  enable_rerank: false     # 是否开启重排序 (并发高时建议关闭本地重排序，或者确保显存足够)
+
+paths:
+  corpus_dir: "/bitparrot/tech_research/ghwang/project/2512101CBS_FD_GraphRAG/0Corpus/2512101_60cases/txt"
+  test_case_path: "/bitparrot/tech_research/ghwang/project/2512101CBS_FD_GraphRAG/0Cases/2512101_60cases/RAG_case_60_2512094精简sheet列.xlsx"
+  # 输出
+  output_path: "/bitparrot/tech_research/ghwang/project/2512101CBS_FD_GraphRAG/0Cases/2512101_60cases/RAG_case_60_2512094精简sheet列_result.xlsx"
+  vector_db_dir: "./chroma_db"
+
+# === 新增 Excel 列名配置 ===
+excel_columns:
+  # 对应 B 列的表头名称
+  question_col: "问题"
+  
+  # 结果回填的列名 (程序会自动创建这一列)
+  output_col: "gen_answer"
+
+  # (可选) 如果未来需要用到其他列，可以在这里加
+  # file_col: "文件"        # A列
+  # standard_answer: "答案" # C列
+
+adaptive_gpu:
+  enabled: true            # 是否开启自适应显存保护
+  min_concurrency: 2       # 最低降到多少并发（防止降到0卡死）
+  step_size: 2             # 每次OOM减少多少个并发
+  cool_down: 5             # OOM后暂停几秒让显存释放
+
+models:
+  # embedding_mode: "local" 或 "internal"
+  embedding_mode: "internal" 
+  
+  # 本地模型路径 (当 mode="local" 时生效)
+  local_embedding_path: "/bitparrot/tech_research/ghwang/libin/Model/bge-m3/"
+  rerank_model_path: "/bitparrot/tech_research/ghwang/libin/Model/bge-reranker-v2-m3/"
+
+  # 内网 Embedding 配置 (当 mode="internal" 时生效)
+  internal_embedding:
+    api_url: "https://10.137.19.4:39090/textembeddingservice/embeddings"
+    model_name: "pangu-s-text-embedding-v1"
+    # 新增参数
+    batch_size: 10          # API限制每次只能传10条
+    embed_concurrency: 16   # 建库时的并发请求数
+    
+llm_config:
+  mode: "internal"
+  internal:
+    api_url: "https://10.137.19.4:39090/gtsllm-standard-910b/v1/chat/completions"
+    model_name: "GTSLLM-Standard"
+    timeout: 180
+    # 将所有内网IP都加在这里
+    no_proxy_ips: "10.137.19.4,localhost,127.0.0.1"
+
+rag:
+  chunk_size: 512
+  chunk_overlap: 50
+  top_k_retrieval: 10
+  top_k_rerank: 3
