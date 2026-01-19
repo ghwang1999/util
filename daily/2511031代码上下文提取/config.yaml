@@ -4,7 +4,7 @@
 # [核心配置] 要扫描的项目文件夹路径
 # '.' 表示 config.yaml 文件所在的当前文件夹
 # 你也可以使用相对路径，例如: '../my_other_project' 或 './src'
-project_path: D:\PFile\项目\2511201GraphRAG\2511211neo4j\prompts
+project_path: D:\GitHub\2025projects\exp_modproj\2512172LI_GRAG
 
 # 输出文件的名称
 output_filename: context_snapshot.txt
@@ -52,8 +52,8 @@ max_file_size_kb: 200
 # 添加到输出文件开头的前言文本，可以给 AI 提供指令
 # 使用 | 可以保留换行符，非常适合多行文本
 preamble_text: |
-  这是一个 Python Django 项目。
-  请帮我分析代码结构，并找出潜在的性能问题。
+  这是一个 Python 项目。
+  请帮我分析代码。
 
 # 在文件内容中需要屏蔽的词语或句子（整行屏蔽）
 # 非常适合用来过滤掉自动生成的注释、版权信息或调试代码
