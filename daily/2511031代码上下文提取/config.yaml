@@ -4,7 +4,7 @@
 # [核心配置] 要扫描的项目文件夹路径
 # '.' 表示 config.yaml 文件所在的当前文件夹
 # 你也可以使用相对路径，例如: '../my_other_project' 或 './src'
-project_path: D:\PFile\项目\2511201GraphRAG\2511211neo4j\prompts
+project_path: D:\server\ghwang\project\2025projects\exp_modproj\2512172LI_GRAG
 
 # 输出文件的名称
 output_filename: context_snapshot.txt
@@ -26,6 +26,8 @@ ignore:
   - __pycache__
   - dist
   - build
+  - chroma_db
+  - logs
   # --- 注意：以下以 * 开头的必须加引号 ---
   - "*.pyc"
   - "*.exe"
