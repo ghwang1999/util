@@ -26,6 +26,8 @@ ignore:
   - __pycache__
   - dist
   - build
+  - chroma_db
+  - logs
   # --- 注意：以下以 * 开头的必须加引号 ---
   - "*.pyc"
   - "*.exe"
